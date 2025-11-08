@@ -177,19 +177,9 @@ Contributions are welcome! Please follow these steps:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Links
-
-- **Website**: [riftsprotocol.com](https://riftsprotocol.com)
-- **Documentation**: [docs.riftsprotocol.com](https://docs.riftsprotocol.com)
-- **Twitter**: [@riftsprotocol](https://twitter.com/riftsprotocol)
-- **Discord**: [Join our community](https://discord.gg/riftsprotocol)
-
 ## Support
 
-For questions or issues:
-- Open an issue on GitHub
-- Join our Discord community
-- Contact us on Twitter
+For questions or issues, please open an issue on GitHub.
 
 ---
 
