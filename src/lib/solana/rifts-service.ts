@@ -426,32 +426,6 @@ export class ProductionRiftsService {
   }
 
   // Get a vanity address from server pool (instant!)
-  private async getVanityRiftAddressFromServer(): Promise<{ keypair: Keypair; address: string } | null> {
-    try {
-      const response = await fetch('/api/vanity-pool', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const data = await response.json();
-
-      // Reconstruct keypair from array
-      const keypair = Keypair.fromSecretKey(new Uint8Array(data.keypair));
-
-      return {
-        keypair,
-        address: data.address
-      };
-
-    } catch (error) {
-      return null;
-    }
-  }
-
   // Get a vanity address from local pool (instant!)
   private getVanityRiftAddressFromLocalPool(): { keypair: Keypair; address: string } | null {
     const result = ProductionRiftsService.vanityAddressPool.shift() || null;
@@ -675,7 +649,7 @@ export class ProductionRiftsService {
       }
 
       // Try server pool first (pre-generated addresses)
-      let vanityResult = await this.getVanityRiftAddressFromServer();
+      let vanityResult = null  // SECURITY: Removed insecure server pool;
 
       // Fallback to local pool if server unavailable
       if (!vanityResult) {

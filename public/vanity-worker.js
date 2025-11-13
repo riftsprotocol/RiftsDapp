@@ -1,58 +1,36 @@
-// Web Worker for parallel vanity address generation
-// This runs in a separate thread to avoid blocking the main thread
+// SECURITY WARNING: This worker has been disabled
+// It previously generated and exposed private keys to the browser context
+// This is a CRITICAL security vulnerability
 
-importScripts('https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js');
+// DEPRECATION NOTICE:
+// This vanity worker generated keypairs client-side and exposed private keys
+// to the application JavaScript context, making them vulnerable to:
+// - XSS attacks
+// - Malicious browser extensions
+// - Compromised dependencies
+// - Memory inspection
+//
+// SECURE ALTERNATIVE:
+// Use PDA (Program Derived Address) generation instead:
+// - No private keys generated
+// - Deterministic addresses from public inputs
+// - Cannot be stolen or compromised
+// - Use /api/vanity-pda-pool endpoint
 
-// Generate vanity addresses in parallel
 self.onmessage = function(e) {
-  const { id, pattern, maxAttempts = 2000000, workerId } = e.data;
+  console.error('🚨 SECURITY: vanity-worker.js is deprecated and disabled');
+  console.error('🚨 This worker previously generated private keys in the browser');
+  console.error('🚨 Use PDA-based vanity generation instead');
 
-  console.log(`Worker ${workerId}: Starting generation for pattern "${pattern}"`);
-
-  const startTime = Date.now();
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Generate keypair using Solana Web3.js
-    const keypair = solanaWeb3.Keypair.generate();
-    const address = keypair.publicKey.toBase58();
-
-    // Check if it matches our pattern
-    if (address.toLowerCase().endsWith(pattern.toLowerCase())) {
-      const duration = (Date.now() - startTime) / 1000;
-
-      // Found a match! Send it back to main thread
-      self.postMessage({
-        type: 'success',
-        id,
-        workerId,
-        result: {
-          keypair: Array.from(keypair.secretKey), // Convert to transferable array
-          address,
-          attempts: attempt + 1,
-          duration
-        }
-      });
-      return;
-    }
-
-    // Send progress updates every 50k attempts
-    if (attempt % 50000 === 0 && attempt > 0) {
-      self.postMessage({
-        type: 'progress',
-        id,
-        workerId,
-        attempts: attempt,
-        maxAttempts
-      });
-    }
-  }
-
-  // No match found
   self.postMessage({
-    type: 'failed',
-    id,
-    workerId,
-    attempts: maxAttempts,
-    duration: (Date.now() - startTime) / 1000
+    type: 'error',
+    id: e.data.id,
+    workerId: e.data.workerId,
+    error: 'This worker has been disabled due to security vulnerabilities. Use PDA-based vanity generation instead.',
+    migration: {
+      reason: 'Client-side private key generation exposes keys to XSS and malicious code',
+      alternative: 'Use /api/vanity-pda-pool for secure PDA generation',
+      auditReference: 'audit.md - Issue #1 & #9: Private key exposure'
+    }
   });
 };

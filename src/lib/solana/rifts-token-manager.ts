@@ -55,8 +55,14 @@ export class ProductionRiftsTokenManager {
 
   // Production RIFTS token on mainnet
   private readonly RIFTS_TOKEN_MINT = new PublicKey('DqUFchBMxdqcYHQbaJqZHVDNz1PfMBQzLYFUze37uPnn'); // Actual deployed mint
-  private readonly RIFTS_AUTHORITY = new PublicKey('7iKfF6Sr7bvHrEFRA6PKNYZBGAJwYMSw43QyPcPY5VpY'); // NEWLY DEPLOYED PROGRAM AUTHORITY
+
+  // SECURITY WARNING: This authority MUST be a Program Derived Address (PDA)
+  // controlled by the on-chain program. Never use a keypair-based authority.
+  // The private key for this authority should NEVER exist off-chain.
+  private readonly RIFTS_AUTHORITY = new PublicKey('7iKfF6Sr7bvHrEFRA6PKNYZBGAJwYMSw43QyPcPY5VpY'); // MUST BE PDA
+
   private readonly TREASURY_WALLET = new PublicKey('2bpDsUxzBXy6YHQ6tFknMU1dpeN36ZbVLWFvsMCGgSGp'); // Treasury wallet
+  private readonly RIFTS_PROGRAM_ID = new PublicKey('D37XSobyWYs1XHUjF4YopMuPPYQ6GYCSjJCyPmat3CLn'); // Program ID
 
   // LP staking rewards configuration
   private readonly BASE_APY = 0.15; // 15% base APY for LP stakers
@@ -71,6 +77,51 @@ export class ProductionRiftsTokenManager {
       decimals: 9,
       totalSupply: 1_000_000_000 // 1 billion RIFTS
     };
+
+    // SECURITY: Validate authority on initialization
+    this.validateMintAuthority().catch(err => {
+      console.error('🚨 CRITICAL SECURITY WARNING: Mint authority validation failed:', err);
+      console.error('🚨 The mint authority may not be properly configured as a PDA');
+    });
+  }
+
+  // SECURITY: Validate that the mint authority is a PDA controlled by the program
+  private async validateMintAuthority(): Promise<void> {
+    try {
+      const mintInfo = await getMint(this.connection, this.RIFTS_TOKEN_MINT);
+
+      if (!mintInfo.mintAuthority) {
+        throw new Error('No mint authority set (mint is frozen)');
+      }
+
+      if (!mintInfo.mintAuthority.equals(this.RIFTS_AUTHORITY)) {
+        throw new Error(`Mint authority mismatch. Expected: ${this.RIFTS_AUTHORITY.toBase58()}, Got: ${mintInfo.mintAuthority.toBase58()}`);
+      }
+
+      // SECURITY CHECK: Verify the authority cannot sign transactions
+      // A PDA should not be able to sign - if it can, it's a security risk
+      const authorityAccountInfo = await this.connection.getAccountInfo(this.RIFTS_AUTHORITY);
+
+      if (!authorityAccountInfo) {
+        console.warn('⚠️ WARNING: Mint authority account does not exist on-chain');
+        console.warn('⚠️ This may indicate the authority is not a PDA');
+      } else if (authorityAccountInfo.owner.equals(SystemProgram.programId)) {
+        console.error('🚨 CRITICAL: Mint authority is a system account (not a PDA)');
+        console.error('🚨 This means it could have a private key, which is a security risk');
+        throw new Error('Mint authority must be a PDA controlled by the program, not a system account');
+      } else if (!authorityAccountInfo.owner.equals(this.RIFTS_PROGRAM_ID)) {
+        console.warn(`⚠️ WARNING: Mint authority is owned by ${authorityAccountInfo.owner.toBase58()}`);
+        console.warn(`⚠️ Expected owner: ${this.RIFTS_PROGRAM_ID.toBase58()}`);
+      }
+
+      console.log('✅ Mint authority validation passed');
+      console.log(`   Mint: ${this.RIFTS_TOKEN_MINT.toBase58()}`);
+      console.log(`   Authority: ${this.RIFTS_AUTHORITY.toBase58()}`);
+      console.log(`   Owner: ${authorityAccountInfo?.owner.toBase58()}`);
+    } catch (error) {
+      console.error('❌ Mint authority validation failed:', error);
+      throw error;
+    }
   }
 
   // Deploy RIFTS token to mainnet (one-time setup)

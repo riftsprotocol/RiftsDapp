@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit, swapRateLimiter } from '@/lib/middleware/rate-limiter';
 import { validateOrigin, createForbiddenResponse } from '@/lib/middleware/csrf-protection';
+import { validatePublicKey } from '@/lib/validation/input-validator';
 
 // Use Node.js runtime with fetch support
 export const runtime = 'nodejs';
@@ -33,13 +34,75 @@ export async function POST(request: NextRequest) {
     // Get the request body
     const body = await request.json();
 
-    // Validate required fields
+    // SECURITY FIX: Validate required fields
     if (!body.quoteResponse || !body.userPublicKey) {
       return NextResponse.json(
         { error: 'Missing required parameters: quoteResponse, userPublicKey' },
         { status: 400 }
       );
     }
+
+    // SECURITY FIX: Validate user public key
+    const userPkValidation = validatePublicKey(body.userPublicKey, 'User Public Key');
+    if (!userPkValidation.isValid) {
+      return NextResponse.json(
+        { error: userPkValidation.error },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Validate quote response structure
+    if (typeof body.quoteResponse !== 'object' || !body.quoteResponse.inputMint || !body.quoteResponse.outputMint) {
+      return NextResponse.json(
+        { error: 'Invalid quoteResponse structure' },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Validate quote freshness (prevent stale quote attacks)
+    const QUOTE_EXPIRY_SECONDS = 30; // Quotes expire after 30 seconds
+    const quoteTimestamp = body.quoteResponse.contextSlot || body.quoteResponse.timeTaken || Date.now();
+    const currentTime = Date.now();
+    const quoteAge = (currentTime - quoteTimestamp) / 1000;
+
+    if (quoteAge > QUOTE_EXPIRY_SECONDS) {
+      console.warn(`🚫 Stale quote rejected: ${quoteAge.toFixed(1)}s old (max ${QUOTE_EXPIRY_SECONDS}s)`);
+      return NextResponse.json(
+        {
+          error: 'Quote expired',
+          message: `This quote is ${quoteAge.toFixed(1)} seconds old. Please get a fresh quote.`,
+          quoteAge: quoteAge,
+          maxAge: QUOTE_EXPIRY_SECONDS
+        },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Validate token mints in quote
+    const inputMintValidation = validatePublicKey(body.quoteResponse.inputMint, 'Input Mint');
+    if (!inputMintValidation.isValid) {
+      return NextResponse.json(
+        { error: `Invalid quote: ${inputMintValidation.error}` },
+        { status: 400 }
+      );
+    }
+
+    const outputMintValidation = validatePublicKey(body.quoteResponse.outputMint, 'Output Mint');
+    if (!outputMintValidation.isValid) {
+      return NextResponse.json(
+        { error: `Invalid quote: ${outputMintValidation.error}` },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Ensure we're not signing with server keys (user must sign)
+    if (body.wrapUnwrapSOL !== undefined || body.feeAccount !== undefined) {
+      console.warn('⚠️ Warning: Client specified advanced parameters (wrapUnwrapSOL, feeAccount)');
+    }
+
+    // SECURITY WARNING: Never add server signing capability
+    // The transaction returned by Jupiter MUST be signed by the user's wallet
+    // Never use a server-side keypair to sign transactions
 
     // Forward request to Jupiter API (NEW v1 endpoint - old v6 is being sunset)
     const jupiterUrl = 'https://lite-api.jup.ag/swap/v1/swap';

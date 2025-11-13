@@ -8,15 +8,27 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    // Verify this is an authorized request (optional - add auth token)
+    // SECURITY FIX: Fail-closed by default - authentication is REQUIRED
     const authToken = req.headers.authorization;
     const expectedToken = process.env.RIFTS_REFRESH_TOKEN;
 
-    if (expectedToken && authToken !== `Bearer ${expectedToken}`) {
-      console.log('⚠️ Unauthorized refresh attempt');
+    // SECURITY: Authentication token is MANDATORY
+    if (!expectedToken) {
+      console.error('🚨 RIFTS_REFRESH_TOKEN environment variable not set');
+      console.error('🚨 This endpoint cannot be used without authentication');
+      return res.status(503).json({
+        success: false,
+        error: 'Service unavailable',
+        message: 'Authentication not configured for this endpoint'
+      });
+    }
+
+    if (authToken !== `Bearer ${expectedToken}`) {
+      console.warn('🚫 Unauthorized refresh attempt');
       return res.status(401).json({
         success: false,
-        error: 'Unauthorized'
+        error: 'Unauthorized',
+        message: 'Valid authentication token required'
       });
     }
 

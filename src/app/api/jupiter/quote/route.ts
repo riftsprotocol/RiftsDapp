@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit, quoteRateLimiter } from '@/lib/middleware/rate-limiter';
 import { validateOrigin, createForbiddenResponse } from '@/lib/middleware/csrf-protection';
+import { validatePublicKey, validateTokenAmount, validateFeeBps } from '@/lib/validation/input-validator';
 
 // Use Node.js runtime with fetch support
 export const runtime = 'nodejs';
@@ -38,11 +39,67 @@ export async function GET(request: NextRequest) {
     const slippageBps = searchParams.get('slippageBps') || '300';
     const onlyDirectRoutes = searchParams.get('onlyDirectRoutes') || 'false';
 
+    // SECURITY FIX: Validate required parameters
     if (!inputMint || !outputMint || !amount) {
       return NextResponse.json(
         { error: 'Missing required parameters: inputMint, outputMint, amount' },
         { status: 400 }
       );
+    }
+
+    // SECURITY FIX: Validate input mint address
+    const inputMintValidation = validatePublicKey(inputMint, 'Input Mint');
+    if (!inputMintValidation.isValid) {
+      return NextResponse.json(
+        { error: inputMintValidation.error },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Validate output mint address
+    const outputMintValidation = validatePublicKey(outputMint, 'Output Mint');
+    if (!outputMintValidation.isValid) {
+      return NextResponse.json(
+        { error: outputMintValidation.error },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Validate amount
+    const amountValidation = validateTokenAmount(amount, {
+      min: 1,
+      max: 1e15, // Max 1 quadrillion base units (reasonable limit)
+      fieldName: 'Amount',
+      decimals: 0 // Amount is in base units (lamports)
+    });
+    if (!amountValidation.isValid) {
+      return NextResponse.json(
+        { error: amountValidation.error },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Validate slippage (max 1000 bps = 10%)
+    const slippageValidation = validateFeeBps(slippageBps, {
+      max: 1000, // Max 10% slippage for safety
+      fieldName: 'Slippage'
+    });
+    if (!slippageValidation.isValid) {
+      return NextResponse.json(
+        { error: slippageValidation.error, suggestion: 'Maximum allowed slippage is 10% (1000 bps)' },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY FIX: Token whitelist for production (optional but recommended)
+    const ALLOWED_TOKENS = process.env.JUPITER_ALLOWED_TOKENS?.split(',') || [];
+    if (ALLOWED_TOKENS.length > 0) {
+      if (!ALLOWED_TOKENS.includes(inputMint) || !ALLOWED_TOKENS.includes(outputMint)) {
+        return NextResponse.json(
+          { error: 'Token not in whitelist. Only approved tokens are allowed for trading.' },
+          { status: 403 }
+        );
+      }
     }
 
     // Forward request to Jupiter API (NEW v1 endpoint - old v6 is being sunset)

@@ -1,10 +1,51 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { createClient } from '@supabase/supabase-js';
 import { Connection, PublicKey } from '@solana/web3.js';
+import { validateOrigin } from '@/lib/middleware/csrf-protection';
+import { checkRateLimit, apiRateLimiter } from '@/lib/middleware/rate-limiter';
+import { supabaseServer, isServiceRoleConfigured } from '@/lib/supabase/server';
 
 const RIFTS_PROGRAM_ID = new PublicKey('D37XSobyWYs1XHUjF4YopMuPPYQ6GYCSjJCyPmat3CLn');
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // SECURITY FIX: Apply CSRF protection
+  if (!validateOrigin(req as any)) {
+    console.warn(`🚫 CSRF: Blocked clear-cache request from origin: ${req.headers.origin}`);
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Invalid origin. This API endpoint can only be accessed from authorized domains.'
+    });
+  }
+
+  // SECURITY FIX: Apply rate limiting
+  const rateLimit = checkRateLimit(req as any, apiRateLimiter);
+  if (!rateLimit.allowed) {
+    console.warn(`🚫 Rate limit exceeded for clear-cache`);
+    return res.status(429).json({
+      error: 'Too many requests',
+      retryAfter: rateLimit.retryAfter
+    });
+  }
+
+  // SECURITY FIX: Require authentication
+  const authToken = req.headers.authorization;
+  const expectedToken = process.env.CACHE_ADMIN_TOKEN;
+
+  if (!expectedToken) {
+    console.error('🚨 CACHE_ADMIN_TOKEN not configured');
+    return res.status(503).json({
+      error: 'Service unavailable',
+      message: 'Authentication not configured'
+    });
+  }
+
+  if (authToken !== `Bearer ${expectedToken}`) {
+    console.warn('🚫 Unauthorized cache clear attempt');
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Valid authentication token required'
+    });
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -12,19 +53,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     console.log('🧹 Clearing old rifts cache...');
 
-    // Check if Supabase is configured
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(200).json({
-        success: true,
-        message: 'Supabase not configured - cache clear skipped',
-        cleared: 0
+    // SECURITY FIX: Use service role client for database operations
+    if (!isServiceRoleConfigured) {
+      return res.status(503).json({
+        success: false,
+        error: 'Service role not configured',
+        message: 'Set SUPABASE_SERVICE_ROLE_KEY environment variable'
       });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseServer;
     const connection = new Connection(
       process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
       'confirmed'

@@ -1,8 +1,11 @@
 // Server-side PDA vanity generation pool with persistence
+// SECURITY FIX: Added CSRF protection and rate limiting
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { PublicKey } from '@solana/web3.js';
 import fs from 'fs';
 import path from 'path';
+import { validateOrigin } from '@/lib/middleware/csrf-protection';
+import { checkRateLimit, apiRateLimiter } from '@/lib/middleware/rate-limiter';
 
 // Try to load native accelerated generator
 let nativeGenerator: any = null;
@@ -171,6 +174,25 @@ async function refillPool(creator: string, underlyingMint: string) {
 
 // API handler
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // SECURITY FIX: Apply CSRF protection
+  if (!validateOrigin(req as any)) {
+    console.warn(`🚫 CSRF: Blocked vanity-pda-pool request from origin: ${req.headers.origin}`);
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Invalid origin. This API endpoint can only be accessed from authorized domains.'
+    });
+  }
+
+  // SECURITY FIX: Apply rate limiting
+  const rateLimit = checkRateLimit(req as any, apiRateLimiter);
+  if (!rateLimit.allowed) {
+    console.warn(`🚫 Rate limit exceeded for vanity-pda-pool`);
+    return res.status(429).json({
+      error: 'Too many requests',
+      retryAfter: rateLimit.retryAfter
+    });
+  }
+
   if (req.method === 'GET') {
     // Get a PDA from the pool
     const { creator, underlyingMint } = req.query;

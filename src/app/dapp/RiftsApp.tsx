@@ -838,20 +838,9 @@ const RiftsApp: React.FC = () => {
   useEffect(() => {
     const preloadData = async () => {
       try {
-
-        // Trigger vanity address pool startup by hitting the API
-
-        fetch('/api/vanity-pool', { method: 'PUT' })
-          .then(response => response.json())
-          .then(status => {
-
-            if (status.poolSize === 0) {
-
-            } else {
-
-            }
-          })
-          .catch(console.error);
+        // SECURITY FIX: Removed deprecated vanity-pool endpoint call
+        // The old endpoint exposed private keys and has been disabled
+        // PDA-based vanity generation doesn't need pre-warming
 
         // Load real data in parallel with service initialization - with error handling
         const [metrics, analytics] = await Promise.allSettled([
@@ -2639,8 +2628,10 @@ const RiftsApp: React.FC = () => {
       };
       riftProtocolService.setWallet(walletAdapter as WalletAdapter);
 
-      // Step 1: Create the rift with vanity address ending in "rift"
-      const createResult = await riftProtocolService.createRiftWithVanityAddress({
+      // Step 1: Create the rift with vanity PDA address (SECURE - no private keys)
+      // SECURITY FIX: Changed from createRiftWithVanityAddress() to createRiftWithVanityPDA()
+      // This eliminates the private key exposure vulnerability
+      const createResult = await riftProtocolService.createRiftWithVanityPDA({
         creator: new PublicKey(wallet.publicKey),
         underlyingMint: new PublicKey(tokenAddress),
         burnFeeBps: Math.floor(parseFloat(burnFee)), // Already in basis points

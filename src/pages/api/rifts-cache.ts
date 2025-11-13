@@ -1,7 +1,10 @@
 // Server-side rifts cache API
 // Pre-fetches rifts from blockchain and serves them instantly to all users
+// SECURITY FIX: Added CSRF protection and rate limiting
 import { NextApiRequest, NextApiResponse } from 'next';
 import { Connection, PublicKey } from '@solana/web3.js';
+import { validateOrigin } from '@/lib/middleware/csrf-protection';
+import { checkRateLimit, apiRateLimiter } from '@/lib/middleware/rate-limiter';
 
 // Cache configuration
 const CACHE_DURATION = 15 * 1000; // 15 seconds for real-time TVL updates
@@ -195,6 +198,25 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  // SECURITY FIX: Apply CSRF protection
+  if (!validateOrigin(req as any)) {
+    console.warn(`🚫 CSRF: Blocked rifts-cache request from origin: ${req.headers.origin}`);
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Invalid origin. This API endpoint can only be accessed from authorized domains.'
+    });
+  }
+
+  // SECURITY FIX: Apply rate limiting
+  const rateLimit = checkRateLimit(req as any, apiRateLimiter);
+  if (!rateLimit.allowed) {
+    console.warn(`🚫 Rate limit exceeded for rifts-cache`);
+    return res.status(429).json({
+      error: 'Too many requests',
+      retryAfter: rateLimit.retryAfter
+    });
+  }
+
   try {
     // Check if cache is still valid
     const now = Date.now();
